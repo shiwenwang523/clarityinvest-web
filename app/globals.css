@@ -238,3 +238,8 @@ body{font-size:14px;background:var(--cream)}
   .section-head h2{font-size:20px}
   .overview-grid>.card,.company-grid>.card,.risk-grid>.card,.evidence-grid>.card{padding:18px}
 }
+
+.live-workspace.cached>header>span{background:#e8eee9;color:#536b61}
+.live-workspace.stale{background:#f5f0e3;border-color:#e6d8ad}
+.live-workspace.stale>header>span{background:#f0dfad;color:#725817}
+.live-warning{margin:12px 0 0;padding:10px 12px;border:1px solid #e2cf98;border-radius:8px;background:#fff9e8;color:#70591e;font-size:10px;line-height:1.5}
