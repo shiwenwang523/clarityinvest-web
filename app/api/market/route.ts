@@ -29,6 +29,10 @@ async function alphaRequest(params: Record<string, string>, apiKey: string) {
   return payload;
 }
 
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { alphaVantageKey?: string; symbols?: string[] };
@@ -38,12 +42,17 @@ export async function POST(request: Request) {
     if (!apiKey) return NextResponse.json({ error: "Add an Alpha Vantage API key." }, { status: 400 });
     if (!symbols.length) return NextResponse.json({ error: "Add at least one valid US ticker." }, { status: 400 });
 
-    // Three quotes + one overview + one combined news request stays within a typical free-tier burst.
-    const [quotePayloads, overview, newsPayload] = await Promise.all([
-      Promise.all(symbols.map((symbol) => alphaRequest({ function: "GLOBAL_QUOTE", symbol }, apiKey))),
-      alphaRequest({ function: "OVERVIEW", symbol: symbols[0] }, apiKey),
-      alphaRequest({ function: "NEWS_SENTIMENT", tickers: symbols.join(","), limit: "8", sort: "LATEST" }, apiKey),
-    ]);
+    // The free Alpha Vantage tier asks clients to stay at or below one request
+    // per second. Run the five provider calls sequentially with a small buffer.
+    const quotePayloads: AlphaJson[] = [];
+    for (const symbol of symbols) {
+      if (quotePayloads.length) await wait(1_100);
+      quotePayloads.push(await alphaRequest({ function: "GLOBAL_QUOTE", symbol }, apiKey));
+    }
+    await wait(1_100);
+    const overview = await alphaRequest({ function: "OVERVIEW", symbol: symbols[0] }, apiKey);
+    await wait(1_100);
+    const newsPayload = await alphaRequest({ function: "NEWS_SENTIMENT", tickers: symbols.join(","), limit: "8", sort: "LATEST" }, apiKey);
 
     const quotes = quotePayloads.map((payload, index) => {
       const q = (payload["Global Quote"] || {}) as Record<string, string>;
