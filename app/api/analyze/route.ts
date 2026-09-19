@@ -59,13 +59,55 @@ function extractText(payload: Record<string, unknown>) {
   return "";
 }
 
+function completionDetails(payload: Record<string, unknown>) {
+  const choices = Array.isArray(payload.choices) ? payload.choices : [];
+  const first = choices[0] as Record<string, unknown> | undefined;
+  const message = first?.message as Record<string, unknown> | undefined;
+  const usage = payload.usage as Record<string, unknown> | undefined;
+  return {
+    finishReason: typeof first?.finish_reason === "string" ? first.finish_reason : "unknown",
+    reasoningLength: typeof message?.reasoning_content === "string" ? message.reasoning_content.length : 0,
+    completionTokens: typeof usage?.completion_tokens === "number" ? usage.completion_tokens : 0,
+  };
+}
+
 function parseJsonObject(text: string) {
   const withoutThinking = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   const withoutFence = withoutThinking.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   const start = withoutFence.indexOf("{");
   const end = withoutFence.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("GLM returned no readable JSON object.");
-  return JSON.parse(withoutFence.slice(start, end + 1));
+  return JSON.parse(withoutFence.slice(start, end + 1)) as unknown;
+}
+
+function isStringArray(value: unknown) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isStructuredAnalysis(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const analysis = value as Record<string, unknown>;
+  const decision = analysis.decision as Record<string, unknown> | undefined;
+  const agents = Array.isArray(analysis.agents) ? analysis.agents : [];
+  return typeof analysis.summary === "string"
+    && typeof analysis.confidence === "number"
+    && Boolean(decision)
+    && typeof decision?.label === "string"
+    && typeof decision?.rationale === "string"
+    && typeof decision?.reviewTrigger === "string"
+    && agents.length === 4
+    && agents.every((agent) => {
+      if (!agent || typeof agent !== "object") return false;
+      const item = agent as Record<string, unknown>;
+      return typeof item.name === "string"
+        && typeof item.score === "number"
+        && typeof item.verdict === "string"
+        && isStringArray(item.findings);
+    })
+    && isStringArray(analysis.bullCase)
+    && isStringArray(analysis.bearCase)
+    && isStringArray(analysis.riskFlags)
+    && isStringArray(analysis.learningNotes);
 }
 
 async function glmRequest(apiKey: string, payload: Record<string, unknown>) {
@@ -80,7 +122,8 @@ async function glmRequest(apiKey: string, payload: Record<string, unknown>) {
   const data = (await response.json()) as Record<string, unknown>;
   if (!response.ok) {
     const apiError = data.error as Record<string, unknown> | undefined;
-    throw new Error(String(apiError?.message || data.message || data.msg || `GLM returned HTTP ${response.status}.`));
+    const providerMessage = String(apiError?.message || data.message || data.msg || `GLM returned HTTP ${response.status}.`);
+    throw new Error(providerMessage.split(apiKey).join("[redacted]"));
   }
   return data;
 }
@@ -122,21 +165,46 @@ export async function POST(request: Request) {
       return NextResponse.json({ answer });
     }
 
-    const data = await glmRequest(apiKey, {
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: `Run the TradingAgents-inspired workflow: Market, Fundamentals, News, and Sentiment analysts; Bull/Bear research debate; trader proposal; risk gate; final portfolio-manager decision. Analyze this exact context:\n${context}\n\nReturn only one valid JSON object that follows this JSON Schema exactly. Do not use markdown fences or add commentary:\n${JSON.stringify(ANALYSIS_SCHEMA)}` },
-      ],
-      thinking: { type: "enabled" },
-      response_format: { type: "json_object" },
-      max_tokens: 3_000,
-      temperature: 0.2,
-      stream: false,
-    });
-    const text = extractText(data);
-    if (!text) throw new Error("GLM returned no structured analysis.");
-    return NextResponse.json({ analysis: parseJsonObject(text), model, generatedAt: new Date().toISOString() });
+    const requiresThinking = /^glm-5\.3(?:-|$)/i.test(model);
+    const structuredSystem = `${system}\nFor this analysis request, return exactly one JSON object matching the supplied schema. Do not include markdown, XML thinking tags, or explanatory text outside the JSON.`;
+    let lastDetails = { finishReason: "unknown", reasoningLength: 0, completionTokens: 0 };
+    let lastParseError = "";
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const data = await glmRequest(apiKey, {
+        model,
+        messages: [
+          { role: "system", content: structuredSystem },
+          { role: "user", content: `Run the TradingAgents-inspired workflow: Market, Fundamentals, News, and Sentiment analysts; Bull/Bear research debate; trader proposal; risk gate; final portfolio-manager decision. Analyze this exact context:\n${context}\n\nRequired JSON Schema:\n${JSON.stringify(ANALYSIS_SCHEMA)}${attempt ? "\n\nThe previous attempt did not produce usable JSON. Return the complete JSON object now." : ""}` },
+        ],
+        thinking: { type: requiresThinking ? "enabled" : "disabled" },
+        ...(requiresThinking ? { reasoning_effort: "low" } : {}),
+        response_format: { type: "json_object" },
+        max_tokens: attempt === 0 ? (requiresThinking ? 16_000 : 8_000) : (requiresThinking ? 24_000 : 12_000),
+        temperature: 0.1,
+        stream: false,
+      });
+      lastDetails = completionDetails(data);
+      const text = extractText(data);
+      if (text) {
+        try {
+          const analysis = parseJsonObject(text);
+          if (isStructuredAnalysis(analysis)) {
+            return NextResponse.json({ analysis, model, generatedAt: new Date().toISOString() });
+          }
+          lastParseError = "the JSON object was missing required analysis fields";
+        } catch (error) {
+          lastParseError = error instanceof Error ? error.message : "the JSON was invalid";
+        }
+      } else {
+        lastParseError = "the final content was empty";
+      }
+    }
+
+    const detail = lastDetails.finishReason !== "unknown" ? ` Finish reason: ${lastDetails.finishReason}.` : "";
+    const tokenDetail = lastDetails.completionTokens ? ` Output tokens: ${lastDetails.completionTokens}.` : "";
+    const reasoningDetail = lastDetails.reasoningLength ? " The model returned reasoning but no usable final JSON." : "";
+    throw new Error(`GLM could not produce structured analysis after an automatic retry: ${lastParseError}.${detail}${tokenDetail}${reasoningDetail}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI analysis failed.";
     return NextResponse.json({ error: message }, { status: 502 });
