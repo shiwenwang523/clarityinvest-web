@@ -19,7 +19,7 @@ The interface is written in English and is designed for a course project—not l
   - Three-perspective risk committee
   - Portfolio Manager decision
 - Current quotes, company fundamentals, and recent news from Alpha Vantage.
-- OpenAI structured multi-agent synthesis and evidence-connected chat.
+- GLM structured multi-agent synthesis and evidence-connected chat.
 - Optional private analyst-report text for a demo evidence source.
 - Clickable finance terms that open explanations in the chat rail.
 - Interactive portfolio change demo: replacing MSFT with AMZN updates the visible allocation and audit trail.
@@ -47,7 +47,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000), complete or skip the questionnaire, choose **API setup**, and enter:
 
-1. An OpenAI API key.
+1. A Zhipu GLM API key.
 2. An Alpha Vantage API key.
 3. Up to three US stock tickers.
 4. Optionally, a private analyst-report excerpt.
@@ -66,7 +66,7 @@ The project is ready for Vercel because it uses standard Next.js server routes.
 
 [Deploy with Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fshiwenwang523%2Fclarityinvest-web)
 
-No environment variables are required for the session-only BYOK flow. You may configure `OPENAI_API_KEY` and `ALPHA_VANTAGE_API_KEY` in Vercel as optional server-side fallbacks, but do not place keys in variables prefixed with `NEXT_PUBLIC_`.
+No environment variables are required for the session-only BYOK flow. You may configure `GLM_API_KEY`, `GLM_MODEL`, `GLM_BASE_URL`, and `ALPHA_VANTAGE_API_KEY` in Vercel as optional server-side fallbacks, but do not place keys in variables prefixed with `NEXT_PUBLIC_`.
 
 ## Architecture
 
@@ -74,7 +74,7 @@ No environment variables are required for the session-only BYOK flow. You may co
 flowchart TD
     A[Investor questionnaire] --> B[Portfolio constraints]
     B --> C[Alpha Vantage evidence]
-    D[Private report text] --> E[OpenAI agent workflow]
+    D[Private report text] --> E[GLM agent workflow]
     C --> E
     E --> F[Bull and Bear debate]
     F --> G[Risk gate]
@@ -86,7 +86,7 @@ flowchart TD
 ### Server routes
 
 - `POST /api/market` validates tickers and retrieves three quotes, one primary-company overview, and a combined recent-news feed.
-- `POST /api/analyze` calls the OpenAI Responses API for either a structured multi-agent analysis or a contextual chat answer.
+- `POST /api/analyze` calls Zhipu's GLM Chat Completions API for either a structured multi-agent analysis or a contextual chat answer.
 
 ## Validation
 
