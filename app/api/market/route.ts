@@ -33,6 +33,18 @@ function wait(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function alphaTime(date: Date) {
+  return date.toISOString().replace(/[-:]/g, "").slice(0, 13);
+}
+
+function normalizePublishedAt(value: unknown) {
+  const raw = String(value || "");
+  const match = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/);
+  if (!match) return raw;
+  const [, year, month, day, hour, minute, second] = match;
+  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second))).toISOString();
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { alphaVantageKey?: string; symbols?: string[] };
@@ -43,7 +55,7 @@ export async function POST(request: Request) {
     if (!symbols.length) return NextResponse.json({ error: "Add at least one valid US ticker." }, { status: 400 });
 
     // The free Alpha Vantage tier asks clients to stay at or below one request
-    // per second. Run the five provider calls sequentially with a small buffer.
+    // per second. Run every provider call sequentially with a small buffer.
     const quotePayloads: AlphaJson[] = [];
     for (const symbol of symbols) {
       if (quotePayloads.length) await wait(1_100);
@@ -51,8 +63,17 @@ export async function POST(request: Request) {
     }
     await wait(1_100);
     const overview = await alphaRequest({ function: "OVERVIEW", symbol: symbols[0] }, apiKey);
-    await wait(1_100);
-    const newsPayload = await alphaRequest({ function: "NEWS_SENTIMENT", tickers: symbols.join(","), limit: "8", sort: "LATEST" }, apiKey);
+
+    // Alpha Vantage treats a comma-separated ticker query as an AND filter.
+    // Query each holding separately so a fresh AAPL-only article is not hidden
+    // just because it does not also mention MSFT and NVDA.
+    const newsPayloads: { symbol: string; payload: AlphaJson }[] = [];
+    const timeFrom = alphaTime(new Date(Date.now() - 14 * 24 * 60 * 60 * 1_000));
+    for (const symbol of symbols) {
+      await wait(1_100);
+      const payload = await alphaRequest({ function: "NEWS_SENTIMENT", tickers: symbol, time_from: timeFrom, limit: "20", sort: "LATEST" }, apiKey);
+      newsPayloads.push({ symbol, payload });
+    }
 
     const quotes = quotePayloads.map((payload, index) => {
       const q = (payload["Global Quote"] || {}) as Record<string, string>;
@@ -66,19 +87,35 @@ export async function POST(request: Request) {
       };
     });
 
-    const feed = Array.isArray(newsPayload.feed) ? newsPayload.feed : [];
-    const news = feed.slice(0, 8).map((item) => {
-      const row = item as Record<string, unknown>;
-      return {
-        title: String(row.title || "Untitled market update"),
-        summary: String(row.summary || ""),
-        source: String(row.source || "Alpha Vantage feed"),
-        url: String(row.url || ""),
-        publishedAt: String(row.time_published || ""),
-        sentiment: String(row.overall_sentiment_label || "Neutral"),
-        sentimentScore: Number(row.overall_sentiment_score || 0),
-      };
+    const collectedNews = newsPayloads.flatMap(({ symbol, payload }) => {
+      const feed = Array.isArray(payload.feed) ? payload.feed : [];
+      return feed.map((item) => {
+        const row = item as Record<string, unknown>;
+        const tickerSentiment = Array.isArray(row.ticker_sentiment) ? row.ticker_sentiment : [];
+        const relatedSymbols = tickerSentiment
+          .map((entry) => String((entry as Record<string, unknown>).ticker || ""))
+          .filter(Boolean);
+        return {
+          title: String(row.title || "Untitled market update"),
+          summary: String(row.summary || ""),
+          source: String(row.source || "Alpha Vantage feed"),
+          url: String(row.url || ""),
+          publishedAt: normalizePublishedAt(row.time_published),
+          sentiment: String(row.overall_sentiment_label || "Neutral"),
+          sentimentScore: Number(row.overall_sentiment_score || 0),
+          symbols: relatedSymbols.length ? relatedSymbols : [symbol],
+        };
+      });
     });
+    const uniqueNews = new Map<string, (typeof collectedNews)[number]>();
+    for (const item of collectedNews) {
+      const key = item.url || `${item.title}-${item.publishedAt}`;
+      if (!uniqueNews.has(key)) uniqueNews.set(key, item);
+    }
+    const news = Array.from(uniqueNews.values())
+      .filter((item) => Number.isFinite(Date.parse(item.publishedAt)))
+      .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
+      .slice(0, 12);
 
     return NextResponse.json({
       fetchedAt: new Date().toISOString(),
