@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ClarityInvest — Explainable Investment Agent",
-  description: "An evidence-grounded multi-agent investment education and portfolio analysis prototype.",
+  title: "ClarityInvest — Clear Portfolio Decisions",
+  description: "A transparent investment learning and portfolio analysis workspace.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
