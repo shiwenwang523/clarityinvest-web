@@ -308,6 +308,8 @@ body{font-size:14px;background:var(--cream)}
 
 .beginner-grid{display:grid;grid-template-columns:1.3fr .7fr;gap:14px;margin:14px 0}
 .beginner-grid>.card{padding:26px}
+.beginner-grid>.beginner-allocation{grid-column:1}
+.beginner-grid>.plain-risk-card{grid-column:2}
 .beginner-allocation .allocation-body{grid-template-columns:155px 1fr;margin:24px 0 18px}
 .beginner-allocation .allocation-body button{grid-template-columns:9px 1fr auto auto;gap:11px;min-height:48px;border-bottom:1px solid #edf0ed;padding:8px 4px}
 .beginner-allocation .allocation-body button:last-child{border-bottom:0}
@@ -402,6 +404,7 @@ body{font-size:14px;background:var(--cream)}
 
 @media(max-width:1000px){
   .beginner-hero,.beginner-grid{grid-template-columns:1fr}
+  .beginner-grid>.beginner-allocation,.beginner-grid>.plain-risk-card{grid-column:1}
   .risk-simple{grid-template-columns:1fr 1fr}.risk-simple>article:first-child{grid-column:1/-1}
   .freshness-card{grid-template-columns:1fr 1fr}
   .freshness-card>div{border-bottom:1px solid var(--line)}
