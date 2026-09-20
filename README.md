@@ -18,7 +18,8 @@ The interface is written in English and is designed for a course project—not l
   - Trader proposal
   - Three-perspective risk committee
   - Portfolio Manager decision
-- Current quotes, company fundamentals, and recent news from Alpha Vantage.
+- Keyless end-of-day quotes and company data from Nasdaq's public website feed, plus official newsroom items. SEC EDGAR events can be enabled with an identifying server setting.
+- Optional Alpha Vantage mode for users who already have a key.
 - GLM structured multi-agent synthesis and evidence-connected chat.
 - Optional private analyst-report text for a demo evidence source.
 - Clickable finance terms that open explanations in the chat rail.
@@ -27,7 +28,7 @@ The interface is written in English and is designed for a course project—not l
 
 ## Privacy and API-key behavior
 
-The UI uses a bring-your-own-key flow:
+Market data works without an API key. GLM and Alpha Vantage remain optional:
 
 - Keys are held only in React memory for the current browser tab.
 - They are sent to same-origin Next.js server routes only when the user runs an analysis or asks a live question.
@@ -45,12 +46,13 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), complete or skip the questionnaire, choose **API setup**, and enter:
+Open [http://localhost:3000](http://localhost:3000), complete or skip the questionnaire, and choose **Update data**. The default path needs no key and accepts up to three US stock tickers.
 
-1. A Zhipu GLM API key.
-2. An Alpha Vantage API key.
-3. Up to three US stock tickers.
-4. Optionally, a private analyst-report excerpt.
+Choose **Data sources** to optionally add:
+
+1. A Zhipu GLM key for agent synthesis and contextual chat.
+2. An Alpha Vantage key to replace the keyless market-data fallback.
+3. A private analyst-report excerpt for the classroom demo.
 
 The project also supports optional server-side fallback variables:
 
@@ -66,14 +68,14 @@ The project is ready for Vercel because it uses standard Next.js server routes.
 
 [Deploy with Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fshiwenwang523%2Fclarityinvest-web)
 
-No environment variables are required for the session-only BYOK flow. You may configure `GLM_API_KEY`, `GLM_MODEL`, `GLM_BASE_URL`, and `ALPHA_VANTAGE_API_KEY` in Vercel as optional server-side fallbacks, but do not place keys in variables prefixed with `NEXT_PUBLIC_`.
+No environment variables are required for keyless market updates. You may configure `GLM_API_KEY`, `GLM_MODEL`, and `GLM_BASE_URL` in Vercel as optional server-side fallbacks. `ALPHA_VANTAGE_API_KEY` is available to direct callers of `/api/market`; the blank-key interface deliberately stays on public mode. Do not place keys in variables prefixed with `NEXT_PUBLIC_`. To add official SEC filing events, set `SEC_USER_AGENT` to a real project name and contact email as required by SEC fair-access guidance.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
     A[Investor questionnaire] --> B[Portfolio constraints]
-    B --> C[Alpha Vantage evidence]
+    B --> C[Keyless public evidence or optional Alpha Vantage]
     D[Private report text] --> E[GLM agent workflow]
     C --> E
     E --> F[Bull and Bear debate]
@@ -85,7 +87,8 @@ flowchart TD
 
 ### Server routes
 
-- `POST /api/market` validates tickers and retrieves three quotes, one primary-company overview, and a combined recent-news feed.
+- `POST /api/public-market` retrieves best-effort end-of-day quotes/company data and official company news feeds without a key. If `SEC_USER_AGENT` is configured, it also retrieves SEC EDGAR events. Each running server instance caches the snapshot for 15 minutes.
+- `POST /api/market` uses optional Alpha Vantage credentials for quotes, one primary-company overview, and a combined recent-news feed.
 - `POST /api/analyze` calls Zhipu's GLM Chat Completions API for either a structured multi-agent analysis or a contextual chat answer.
 
 ## Validation
@@ -97,4 +100,4 @@ npm run build
 
 ## Important limitation
 
-ClarityInvest provides educational analysis and general investment suggestions. It does not execute trades, guarantee returns, replace a licensed financial professional, or establish a fiduciary relationship. Live provider data can be delayed or incomplete, and the interface retains clearly labeled illustrative sections for demonstration.
+ClarityInvest provides educational analysis and general investment suggestions. It does not execute trades, guarantee returns, replace a licensed financial professional, or establish a fiduciary relationship. Public-provider data is delayed, best-effort, and can be incomplete. The keyless Nasdaq route uses an undocumented website endpoint, so it is appropriate only as a short-term classroom fallback and may change without notice; use a licensed market-data provider for production. Company-feed timestamps can be publication or update times, while SEC event times use EDGAR acceptance timestamps. Nasdaq P/E and selected ratios are application-derived estimates. The interface retains clearly labeled illustrative sections for demonstration.

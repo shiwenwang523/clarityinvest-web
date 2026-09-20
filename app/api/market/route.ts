@@ -308,13 +308,17 @@ export async function POST(request: Request) {
       servedAt: new Date().toISOString(),
       dataStatus,
       warning,
-      usage: { alphaRequests, cacheWindowMinutes: SHORT_CACHE_MS / 60_000 },
+      usage: { providerRequests: alphaRequests, alphaRequests, cacheWindowMinutes: SHORT_CACHE_MS / 60_000 },
       freshness: {
         quotesFetchedAt: oldestFetchedAt(quotePayloads),
         overviewFetchedAt: overviewResult.fetchedAt,
         newsFetchedAt: oldestFetchedAt(newsPayloads.map(({ result }) => result)),
       },
       symbols,
+      newsTimeBasis: "published",
+      dataMode: "alpha",
+      sources: { quotes: "Alpha Vantage", fundamentals: "Alpha Vantage", news: "Alpha Vantage" },
+      capabilities: { quotes: true, fundamentals: true, news: true, sentiment: true },
       quotes,
       overview: {
         symbol: String(overview.Symbol || symbols[0]),
